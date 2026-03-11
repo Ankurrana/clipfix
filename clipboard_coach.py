@@ -411,6 +411,49 @@ def create_clipboard_listener(callback):
     user32.DestroyWindow(hwnd)
 
 
+# ── Auto-Install (first run as exe) ───────────────────────────────────
+def auto_install():
+    """When running as exe, copy to AppData and create startup shortcut if not already installed."""
+    if not getattr(sys, "frozen", False):
+        return  # Only for .exe
+
+    install_dir = Path(os.environ.get("LOCALAPPDATA", "")) / "ClipboardCoach"
+    installed_exe = install_dir / "ClipboardCoach.exe"
+    current_exe = Path(sys.executable)
+
+    # Already running from install dir
+    if current_exe.parent.resolve() == install_dir.resolve():
+        return
+
+    install_dir.mkdir(parents=True, exist_ok=True)
+
+    # Copy exe to install dir
+    import shutil
+    shutil.copy2(str(current_exe), str(installed_exe))
+    log.info("Installed to %s", installed_exe)
+
+    # Create startup shortcut for auto-start at login
+    startup_dir = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+    shortcut_path = startup_dir / "ClipFix.lnk"
+    if not shortcut_path.exists():
+        try:
+            import subprocess
+            ps_cmd = (
+                f'$ws = New-Object -ComObject WScript.Shell; '
+                f'$sc = $ws.CreateShortcut("{shortcut_path}"); '
+                f'$sc.TargetPath = "{installed_exe}"; '
+                f'$sc.Arguments = "--background"; '
+                f'$sc.WorkingDirectory = "{install_dir}"; '
+                f'$sc.Description = "ClipFix"; '
+                f'$sc.Save()'
+            )
+            subprocess.run(["powershell", "-Command", ps_cmd],
+                           capture_output=True, timeout=10)
+            log.info("Auto-start shortcut created")
+        except Exception as e:
+            log.warning("Could not create startup shortcut: %s", e)
+
+
 # ── System Tray Icon ──────────────────────────────────────────────────
 def _create_tray_icon():
     """Create a green 'CF' icon for the system tray."""
@@ -453,6 +496,8 @@ def start_tray_icon():
 # ── Main ───────────────────────────────────────────────────────────────
 def main():
     global provider
+
+    auto_install()
 
     try:
         provider = load_provider_from_config()
