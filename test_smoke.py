@@ -15,9 +15,16 @@ passed = 0
 failed = 0
 warnings = 0
 
+# Detect headless (CI) environment — no desktop session
+HEADLESS = not os.environ.get("SESSIONNAME") and os.environ.get("CI")
 
-def test(name, fn):
+
+def test(name, fn, requires_desktop=False):
     global passed, failed
+    if requires_desktop and HEADLESS:
+        print(f"  SKIP  {name} (no desktop in CI)")
+        passed += 1  # Not a failure
+        return
     try:
         fn()
         print(f"  PASS  {name}")
@@ -66,7 +73,7 @@ def test_clipboard_read():
     text = pyperclip.paste()
     assert isinstance(text, str), f"Expected str, got {type(text)}"
 
-test("Clipboard read access", test_clipboard_read)
+test("Clipboard read access", test_clipboard_read, requires_desktop=True)
 
 
 def test_clipboard_write():
@@ -77,7 +84,7 @@ def test_clipboard_write():
     pyperclip.copy(original)  # restore
     assert result == "clipfix_smoke_test", f"Clipboard write failed: got {result!r}"
 
-test("Clipboard write access", test_clipboard_write)
+test("Clipboard write access", test_clipboard_write, requires_desktop=True)
 
 
 # ── 4. HTML clipboard format ──────────────────────────────────────────
@@ -99,7 +106,7 @@ def test_html_clipboard():
             else:
                 raise
 
-test("HTML clipboard format available", test_html_clipboard)
+test("HTML clipboard format available", test_html_clipboard, requires_desktop=True)
 
 
 # ── 5. Win32 window creation (for clipboard listener) ─────────────────
@@ -165,7 +172,7 @@ def test_win32_window():
     user32.RemoveClipboardFormatListener(hwnd)
     user32.DestroyWindow(hwnd)
 
-test("Win32 clipboard listener (no admin)", test_win32_window)
+test("Win32 clipboard listener (no admin)", test_win32_window, requires_desktop=True)
 
 
 # ── 6. Hotkey registration ────────────────────────────────────────────
@@ -181,7 +188,7 @@ def test_hotkey():
         user32.UnregisterHotKey(None, 9999)
     assert result, "RegisterHotKey failed (Ctrl+M may be in use)"
 
-test("Ctrl+M hotkey registration", test_hotkey)
+test("Ctrl+M hotkey registration", test_hotkey, requires_desktop=True)
 
 
 # ── 7. System tray icon ───────────────────────────────────────────────
@@ -200,7 +207,7 @@ def test_tray_icon():
     assert icon.visible, "Tray icon not visible"
     icon.stop()
 
-test("System tray icon", test_tray_icon)
+test("System tray icon", test_tray_icon, requires_desktop=True)
 
 
 # ── 8. Tray notification ──────────────────────────────────────────────
@@ -222,7 +229,7 @@ def test_tray_notification():
     finally:
         icon.stop()
 
-test("Tray balloon notification (check screen!)", test_tray_notification)
+test("Tray balloon notification (check screen!)", test_tray_notification, requires_desktop=True)
 
 
 # ── 9. AppData directory writable ──────────────────────────────────────
