@@ -1,0 +1,38 @@
+{
+    "_comment": "Copy this file to config.json and fill in your provider details.",
+    "_comment2": "Use $ENV_VAR_NAME to reference environment variables for secrets.",
+
+    "_example_azure_openai": {
+        "provider": "azure_openai",
+        "endpoint": "https://your-resource.cognitiveservices.azure.com/",
+        "deployment": "gpt-4.1",
+        "api_key": "$AZURE_OPENAI_API_KEY",
+        "api_version": "2025-01-01-preview"
+    },
+
+    "_example_openai": {
+        "provider": "openai",
+        "model": "gpt-4.1",
+        "api_key": "$OPENAI_API_KEY"
+    },
+
+    "_example_anthropic": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-6",
+        "api_key": "$ANTHROPIC_API_KEY"
+    },
+
+    "_example_custom_ollama": {
+        "provider": "custom",
+        "base_url": "http://localhost:11434/v1",
+        "model": "llama3",
+        "api_key": "not-needed"
+    },
+
+    "_example_custom_vllm": {
+        "provider": "custom",
+        "base_url": "http://localhost:8000/v1",
+        "model": "meta-llama/Llama-3-8B-Instruct",
+        "api_key": "not-needed"
+    }
+}

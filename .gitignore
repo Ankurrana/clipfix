@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+dist/
+build/
+*.spec
+config.json
+coaching-history.json
+clipboard-coach.log
+.claude/
