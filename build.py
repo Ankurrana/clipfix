@@ -23,7 +23,6 @@ def build():
         "--hidden-import", "anthropic",
         "--hidden-import", "win32clipboard",
         "--hidden-import", "pyperclip",
-        "--hidden-import", "win11toast",
         "--hidden-import", "tkinter",
         "--hidden-import", "pystray",
         "--hidden-import", "PIL",

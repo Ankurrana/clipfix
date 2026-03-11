@@ -15,7 +15,6 @@ import pyperclip
 import win32clipboard
 from PIL import Image, ImageDraw, ImageFont
 from pystray import Icon, Menu, MenuItem
-from win11toast import toast
 
 from providers import load_provider_from_config
 
@@ -122,46 +121,19 @@ if not BACKGROUND_MODE:
     log.addHandler(console_handler)
 
 
-# ── App ID for Windows notifications ──────────────────────────────────
-APP_ID = "ClipFix"
-
-
-def _register_app_id():
-    """Register App User Model ID so Windows shows toast notifications."""
+# ── Notification (via system tray balloon) ─────────────────────────────
+def silent_notify(title, line2, line3=None):
+    """Show a notification via the system tray icon balloon."""
+    msg = line2
+    if line3:
+        msg = f"{line2}\n{line3}"
     try:
-        import winreg
-        key_path = f"SOFTWARE\\Classes\\AppUserModelId\\{APP_ID}"
-        with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, key_path) as key:
-            winreg.SetValueEx(key, "DisplayName", 0, winreg.REG_SZ, "ClipFix")
+        if tray_icon and tray_icon.visible:
+            tray_icon.notify(msg, title)
+        else:
+            log.info("  [notify] (tray not ready) %s: %s", title, msg)
     except Exception as e:
-        log.warning("Could not register app ID: %s", e)
-
-
-# ── Silent Notification (non-blocking) ─────────────────────────────────
-def _escape_xml(text):
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
-
-
-def silent_notify(title, line2, line3=None, scenario="reminder"):
-    def _send():
-        try:
-            t = _escape_xml(title)
-            l2 = _escape_xml(line2)
-            l3_xml = f"<text>{_escape_xml(line3)}</text>" if line3 else ""
-            xml = f'''<toast activationType="protocol" launch="http:" scenario="{scenario}">
-    <visual>
-        <binding template="ToastGeneric">
-            <text>{t}</text>
-            <text>{l2}</text>
-            {l3_xml}
-        </binding>
-    </visual>
-    <audio silent="true" />
-</toast>'''
-            toast(xml=xml, app_id=APP_ID)
-        except Exception as e:
-            log.warning("Notification failed: %s", e)
-    threading.Thread(target=_send, daemon=True).start()
+        log.warning("Notification failed: %s", e)
 
 
 # ── LLM Provider (loaded at startup) ──────────────────────────────────
@@ -536,7 +508,6 @@ def main():
     global provider
 
     auto_install()
-    _register_app_id()
 
     try:
         provider = load_provider_from_config()
