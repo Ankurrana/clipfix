@@ -14,6 +14,8 @@ from datetime import datetime
 import keyboard
 import pyperclip
 import win32clipboard
+from PIL import Image, ImageDraw, ImageFont
+from pystray import Icon, Menu, MenuItem
 from win11toast import toast
 
 from providers import load_provider_from_config
@@ -409,6 +411,45 @@ def create_clipboard_listener(callback):
     user32.DestroyWindow(hwnd)
 
 
+# ── System Tray Icon ──────────────────────────────────────────────────
+def _create_tray_icon():
+    """Create a green 'CF' icon for the system tray."""
+    img = Image.new("RGB", (64, 64), (34, 139, 34))
+    draw = ImageDraw.Draw(img)
+    try:
+        font = ImageFont.truetype("segoeui.ttf", 28)
+    except OSError:
+        font = ImageFont.load_default()
+    draw.text((8, 14), "CF", fill="white", font=font)
+    return img
+
+
+tray_icon = None
+
+
+def _open_log():
+    os.startfile(str(LOG_FILE))
+
+
+def _quit_app(icon):
+    log.info("Quit from tray.")
+    icon.stop()
+    os._exit(0)
+
+
+def start_tray_icon():
+    """Start the system tray icon in a background thread."""
+    global tray_icon
+    menu = Menu(
+        MenuItem("ClipFix is running", lambda: None, enabled=False),
+        Menu.SEPARATOR,
+        MenuItem("Open log file", lambda: _open_log()),
+        MenuItem("Quit", lambda: _quit_app(tray_icon)),
+    )
+    tray_icon = Icon("ClipFix", _create_tray_icon(), "ClipFix", menu)
+    tray_icon.run_detached()
+
+
 # ── Main ───────────────────────────────────────────────────────────────
 def main():
     global provider
@@ -424,18 +465,19 @@ def main():
         provider = load_provider_from_config()
 
     keyboard.add_hotkey("ctrl+m", on_ctrl_m, suppress=True)
+    start_tray_icon()
 
     log.info("-" * 60)
-    log.info("  CLIPBOARD COACH -- Always-on communication improvement")
+    log.info("  CLIPFIX -- Always-on clipboard text fixer")
     log.info("  Provider: %s", provider.display_name)
+    log.info("  Log file: %s", LOG_FILE)
     if BACKGROUND_MODE:
         log.info("  Mode: BACKGROUND")
-        log.info("  Log file: %s", LOG_FILE)
     else:
         log.info("  Mode: INTERACTIVE")
     log.info("-" * 60)
     log.info("  Copy a message -> get coaching -> Ctrl+M to paste rewrite")
-    log.info("  Press Ctrl+C to quit.")
+    log.info("  Tray icon active -- right-click to quit")
     log.info("")
 
     top_patterns = get_top_patterns()
@@ -445,8 +487,10 @@ def main():
     try:
         create_clipboard_listener(analyze_in_background)
     except KeyboardInterrupt:
-        log.info("Coach signing off. Keep communicating with impact!")
+        log.info("ClipFix signing off.")
 
+    if tray_icon:
+        tray_icon.stop()
     keyboard.unhook_all()
 
 

@@ -26,6 +26,8 @@ def build():
         "--hidden-import", "pyperclip",
         "--hidden-import", "win11toast",
         "--hidden-import", "tkinter",
+        "--hidden-import", "pystray",
+        "--hidden-import", "PIL",
         str(SCRIPT_DIR / "clipboard_coach.py"),
     ]
 
