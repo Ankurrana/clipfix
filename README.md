@@ -156,7 +156,25 @@ Or just run `dist/ClipboardCoach.exe` directly — no installation needed.
 
 ### Uninstall
 
-Run `uninstall.bat` to remove everything.
+**Option A: Run the uninstaller**
+
+Run `uninstall.bat` — it stops ClipFix, removes the exe, Start Menu shortcut, and auto-start entry.
+
+**Option B: Manual uninstall**
+
+1. Right-click the ClipFix tray icon and click **Quit** (or kill `ClipboardCoach.exe` in Task Manager)
+2. Delete the install folder:
+   ```powershell
+   Remove-Item "$env:LOCALAPPDATA\ClipboardCoach" -Recurse -Force
+   ```
+3. Remove the Start Menu shortcut:
+   ```powershell
+   Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Clipboard Coach.lnk" -Force
+   ```
+4. Remove the auto-start shortcut:
+   ```powershell
+   Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\Clipboard Coach.lnk" -Force
+   ```
 
 ### Rebuild After Code Changes
 
