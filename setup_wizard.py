@@ -26,7 +26,7 @@ def run_setup():
 
     root = tk.Tk()
     root.title("Clipboard Coach - Setup")
-    root.geometry("520x420")
+    root.geometry("520x450")
     root.resizable(False, False)
 
     # Center on screen
@@ -105,16 +105,46 @@ def run_setup():
             config["model"] = model
             config["api_key"] = api_key
 
-        CONFIG_FILE.write_text(json.dumps(config, indent=2))
+        # Test the connection before saving
+        status_label.config(text="Testing connection...", foreground="blue")
+        root.update()
+
+        try:
+            from providers import create_provider
+            test_config = dict(config)  # copy since create_provider pops 'provider'
+            test_provider = create_provider(dict(config))
+            response, duration = test_provider.complete(
+                "You are a test. Respond with OK.", "Test"
+            )
+            if not response:
+                raise ValueError("Empty response from model")
+        except Exception as e:
+            status_label.config(text="", foreground="red")
+            messagebox.showerror(
+                "Connection Failed",
+                f"Could not connect to the LLM provider.\n\n{type(e).__name__}: {e}",
+            )
+            return
+
+        status_label.config(
+            text=f"Connected! ({duration:.1f}s)", foreground="green"
+        )
+        root.update()
+
+        CONFIG_FILE.write_text(json.dumps(test_config, indent=2))
         result["configured"] = True
-        root.destroy()
+        root.after(1000, root.destroy)  # Brief pause to show success
 
     def cancel():
         root.destroy()
 
+    # Status label
+    status_label = ttk.Label(root, text="", font=("Segoe UI", 9))
+    status_label.pack(pady=(5, 0))
+
     # Buttons
     btn_frame = ttk.Frame(root)
-    btn_frame.pack(pady=10)
+    btn_frame.pack(pady=5)
     ttk.Button(btn_frame, text="Connect", command=save_config).pack(side="left", padx=5)
     ttk.Button(btn_frame, text="Quit", command=cancel).pack(side="left", padx=5)
 
