@@ -122,18 +122,70 @@ if not BACKGROUND_MODE:
 
 
 # ── Notification (via system tray balloon) ─────────────────────────────
+def _win32_balloon(title, msg):
+    """Fallback: show balloon notification via Shell_NotifyIconW directly."""
+    import ctypes.wintypes
+
+    class NOTIFYICONDATAW(ctypes.Structure):
+        _fields_ = [
+            ("cbSize", ctypes.wintypes.DWORD),
+            ("hWnd", ctypes.wintypes.HWND),
+            ("uID", ctypes.wintypes.UINT),
+            ("uFlags", ctypes.wintypes.UINT),
+            ("uCallbackMessage", ctypes.wintypes.UINT),
+            ("hIcon", ctypes.wintypes.HICON),
+            ("szTip", ctypes.c_wchar * 128),
+            ("dwState", ctypes.wintypes.DWORD),
+            ("dwStateMask", ctypes.wintypes.DWORD),
+            ("szInfo", ctypes.c_wchar * 256),
+            ("uVersion", ctypes.wintypes.UINT),
+            ("szInfoTitle", ctypes.c_wchar * 64),
+            ("dwInfoFlags", ctypes.wintypes.DWORD),
+        ]
+
+    NIF_INFO = 0x00000010
+    NIM_MODIFY = 0x00000001
+    NIIF_INFO = 0x00000001
+    NIIF_NOSOUND = 0x00000010
+
+    shell32 = ctypes.windll.shell32
+
+    nid = NOTIFYICONDATAW()
+    nid.cbSize = ctypes.sizeof(NOTIFYICONDATAW)
+    nid.hWnd = 0
+    nid.uID = 0
+    nid.uFlags = NIF_INFO
+    nid.szInfoTitle = title[:63]
+    nid.szInfo = msg[:255]
+    nid.dwInfoFlags = NIIF_INFO | NIIF_NOSOUND
+
+    shell32.Shell_NotifyIconW(NIM_MODIFY, ctypes.byref(nid))
+
+
 def silent_notify(title, line2, line3=None):
-    """Show a notification via the system tray icon balloon."""
+    """Show a notification. Tries pystray balloon, falls back to Win32 API."""
     msg = line2
     if line3:
         msg = f"{line2}\n{line3}"
+
+    log.info("  [notify] %s: %s", title, msg.replace("\n", " | "))
+
+    # Try pystray tray balloon first
+    notified = False
     try:
         if tray_icon and tray_icon.visible:
             tray_icon.notify(msg, title)
-        else:
-            log.info("  [notify] (tray not ready) %s: %s", title, msg)
+            notified = True
     except Exception as e:
-        log.warning("Notification failed: %s", e)
+        log.warning("  [notify] pystray failed: %s", e)
+
+    # Fallback to Win32 balloon
+    if not notified:
+        try:
+            _win32_balloon(title, msg)
+            log.info("  [notify] used Win32 fallback")
+        except Exception as e:
+            log.warning("  [notify] Win32 fallback also failed: %s", e)
 
 
 # ── LLM Provider (loaded at startup) ──────────────────────────────────
@@ -501,6 +553,12 @@ def start_tray_icon():
     )
     tray_icon = Icon("ClipFix", _create_tray_icon(), "ClipFix", menu)
     tray_icon.run_detached()
+    # Wait for tray icon to initialize
+    for _ in range(20):
+        if tray_icon.visible:
+            break
+        time.sleep(0.25)
+    log.info("  Tray icon visible: %s", tray_icon.visible)
 
 
 # ── Main ───────────────────────────────────────────────────────────────
@@ -537,6 +595,9 @@ def main():
     top_patterns = get_top_patterns()
     if top_patterns:
         log.info("  Your recurring patterns: %s", ", ".join(top_patterns))
+
+    # Startup notification to confirm notifications work
+    silent_notify("ClipFix", "Running! Copy a message to get started.")
 
     try:
         create_clipboard_listener(analyze_in_background)
