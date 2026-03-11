@@ -122,70 +122,65 @@ if not BACKGROUND_MODE:
 
 
 # ── Notification (via system tray balloon) ─────────────────────────────
-def _win32_balloon(title, msg):
-    """Fallback: show balloon notification via Shell_NotifyIconW directly."""
-    import ctypes.wintypes
+def _show_popup(title, msg, duration_ms=6000):
+    """Show a non-blocking popup in the bottom-right corner that auto-dismisses."""
+    import tkinter as tk
 
-    class NOTIFYICONDATAW(ctypes.Structure):
-        _fields_ = [
-            ("cbSize", ctypes.wintypes.DWORD),
-            ("hWnd", ctypes.wintypes.HWND),
-            ("uID", ctypes.wintypes.UINT),
-            ("uFlags", ctypes.wintypes.UINT),
-            ("uCallbackMessage", ctypes.wintypes.UINT),
-            ("hIcon", ctypes.wintypes.HICON),
-            ("szTip", ctypes.c_wchar * 128),
-            ("dwState", ctypes.wintypes.DWORD),
-            ("dwStateMask", ctypes.wintypes.DWORD),
-            ("szInfo", ctypes.c_wchar * 256),
-            ("uVersion", ctypes.wintypes.UINT),
-            ("szInfoTitle", ctypes.c_wchar * 64),
-            ("dwInfoFlags", ctypes.wintypes.DWORD),
-        ]
+    popup = tk.Tk()
+    popup.overrideredirect(True)  # No title bar
+    popup.attributes("-topmost", True)  # Always on top
+    popup.attributes("-alpha", 0.92)  # Slight transparency
+    popup.configure(bg="#2d2d2d")
 
-    NIF_INFO = 0x00000010
-    NIM_MODIFY = 0x00000001
-    NIIF_INFO = 0x00000001
-    NIIF_NOSOUND = 0x00000010
+    # Title
+    tk.Label(
+        popup, text=title, font=("Segoe UI", 11, "bold"),
+        fg="#4FC3F7", bg="#2d2d2d", anchor="w",
+    ).pack(fill="x", padx=12, pady=(10, 2))
 
-    shell32 = ctypes.windll.shell32
+    # Message
+    tk.Label(
+        popup, text=msg, font=("Segoe UI", 10),
+        fg="#ffffff", bg="#2d2d2d", anchor="w", justify="left",
+        wraplength=350,
+    ).pack(fill="x", padx=12, pady=(0, 10))
 
-    nid = NOTIFYICONDATAW()
-    nid.cbSize = ctypes.sizeof(NOTIFYICONDATAW)
-    nid.hWnd = 0
-    nid.uID = 0
-    nid.uFlags = NIF_INFO
-    nid.szInfoTitle = title[:63]
-    nid.szInfo = msg[:255]
-    nid.dwInfoFlags = NIIF_INFO | NIIF_NOSOUND
+    popup.update_idletasks()
 
-    shell32.Shell_NotifyIconW(NIM_MODIFY, ctypes.byref(nid))
+    # Position bottom-right of screen
+    w = max(popup.winfo_reqwidth(), 380)
+    h = popup.winfo_reqheight()
+    screen_w = popup.winfo_screenwidth()
+    screen_h = popup.winfo_screenheight()
+    x = screen_w - w - 20
+    y = screen_h - h - 80  # Above taskbar
+    popup.geometry(f"{w}x{h}+{x}+{y}")
+
+    # Click to dismiss
+    for widget in [popup] + list(popup.winfo_children()):
+        widget.bind("<Button-1>", lambda e: popup.destroy())
+
+    # Auto-dismiss
+    popup.after(duration_ms, popup.destroy)
+
+    popup.mainloop()
 
 
 def silent_notify(title, line2, line3=None):
-    """Show a notification. Tries pystray balloon, falls back to Win32 API."""
+    """Show a popup notification in the bottom-right corner."""
     msg = line2
     if line3:
         msg = f"{line2}\n{line3}"
 
     log.info("  [notify] %s: %s", title, msg.replace("\n", " | "))
 
-    # Try pystray tray balloon first
-    notified = False
-    try:
-        if tray_icon and tray_icon.visible:
-            tray_icon.notify(msg, title)
-            notified = True
-    except Exception as e:
-        log.warning("  [notify] pystray failed: %s", e)
-
-    # Fallback to Win32 balloon
-    if not notified:
+    def _send():
         try:
-            _win32_balloon(title, msg)
-            log.info("  [notify] used Win32 fallback")
+            _show_popup(title, msg)
         except Exception as e:
-            log.warning("  [notify] Win32 fallback also failed: %s", e)
+            log.warning("  [notify] popup failed: %s", e)
+
+    threading.Thread(target=_send, daemon=True).start()
 
 
 # ── LLM Provider (loaded at startup) ──────────────────────────────────
