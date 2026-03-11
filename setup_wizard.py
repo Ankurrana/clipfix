@@ -6,8 +6,12 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from pathlib import Path
 
-SCRIPT_DIR = Path(__file__).parent
-CONFIG_FILE = SCRIPT_DIR / "config.json"
+if getattr(sys, "frozen", False):
+    APP_DIR = Path(os.environ.get("LOCALAPPDATA", "")) / "ClipboardCoach"
+else:
+    APP_DIR = Path(__file__).parent
+APP_DIR.mkdir(parents=True, exist_ok=True)
+CONFIG_FILE = APP_DIR / "config.json"
 
 
 def run_setup():

@@ -90,26 +90,35 @@ def get_clipboard_text():
 # ── Config ──────────────────────────────────────────────────────────────
 MIN_WORDS = 5
 MAX_WORDS = 500
-SCRIPT_DIR = Path(__file__).parent
-HISTORY_FILE = SCRIPT_DIR / "coaching-history.json"
-LOG_FILE = SCRIPT_DIR / "clipboard-coach.log"
+
+# Use AppData for data files (reliable path for both .py and .exe)
+if getattr(sys, "frozen", False):
+    # Running as PyInstaller exe
+    APP_DIR = Path(os.environ.get("LOCALAPPDATA", "")) / "ClipboardCoach"
+else:
+    # Running as Python script
+    APP_DIR = Path(__file__).parent
+
+APP_DIR.mkdir(parents=True, exist_ok=True)
+HISTORY_FILE = APP_DIR / "coaching-history.json"
+LOG_FILE = APP_DIR / "clipfix.log"
 
 BACKGROUND_MODE = "--background" in sys.argv
 
-# ── Logging ─────────────────────────────────────────────────────────────
-if BACKGROUND_MODE:
-    logging.basicConfig(
-        filename=str(LOG_FILE),
-        level=logging.INFO,
-        format="%(asctime)s %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-else:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(message)s",
-    )
+# ── Logging (always log to file + console when available) ──────────────
 log = logging.getLogger("coach")
+log.setLevel(logging.INFO)
+
+# Always write to log file
+file_handler = logging.FileHandler(str(LOG_FILE), encoding="utf-8")
+file_handler.setFormatter(logging.Formatter("%(asctime)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
+log.addHandler(file_handler)
+
+# Also log to console if not background mode
+if not BACKGROUND_MODE:
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(logging.Formatter("%(message)s"))
+    log.addHandler(console_handler)
 
 
 # ── Silent Notification (non-blocking) ─────────────────────────────────
@@ -442,4 +451,21 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        log.exception("Fatal error: %s", e)
+        # Show error in a message box since console may not be visible
+        try:
+            import tkinter as tk
+            from tkinter import messagebox
+            root = tk.Tk()
+            root.withdraw()
+            messagebox.showerror(
+                "ClipFix Error",
+                f"{e}\n\nCheck log file:\n{LOG_FILE}",
+            )
+            root.destroy()
+        except Exception:
+            pass
+        sys.exit(1)
