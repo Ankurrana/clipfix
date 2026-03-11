@@ -11,7 +11,6 @@ from html.parser import HTMLParser
 from pathlib import Path
 from datetime import datetime
 
-import keyboard
 import pyperclip
 import win32clipboard
 from PIL import Image, ImageDraw, ImageFont
@@ -123,6 +122,21 @@ if not BACKGROUND_MODE:
     log.addHandler(console_handler)
 
 
+# ── App ID for Windows notifications ──────────────────────────────────
+APP_ID = "ClipFix"
+
+
+def _register_app_id():
+    """Register App User Model ID so Windows shows toast notifications."""
+    try:
+        import winreg
+        key_path = f"SOFTWARE\\Classes\\AppUserModelId\\{APP_ID}"
+        with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, key_path) as key:
+            winreg.SetValueEx(key, "DisplayName", 0, winreg.REG_SZ, "ClipFix")
+    except Exception as e:
+        log.warning("Could not register app ID: %s", e)
+
+
 # ── Silent Notification (non-blocking) ─────────────────────────────────
 def _escape_xml(text):
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
@@ -144,9 +158,9 @@ def silent_notify(title, line2, line3=None, scenario="reminder"):
     </visual>
     <audio silent="true" />
 </toast>'''
-            toast(xml=xml)
-        except Exception:
-            pass
+            toast(xml=xml, app_id=APP_ID)
+        except Exception as e:
+            log.warning("Notification failed: %s", e)
     threading.Thread(target=_send, daemon=True).start()
 
 
@@ -243,12 +257,23 @@ def analyze_message(text):
 pending_rewrite = {"current": None, "pasted": False}
 
 
+def _simulate_paste():
+    """Simulate Ctrl+V using Win32 keybd_event."""
+    VK_CONTROL = 0x11
+    VK_V = 0x56
+    KEYEVENTF_KEYUP = 0x0002
+    user32.keybd_event(VK_CONTROL, 0, 0, 0)
+    user32.keybd_event(VK_V, 0, 0, 0)
+    user32.keybd_event(VK_V, 0, KEYEVENTF_KEYUP, 0)
+    user32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0)
+
+
 def on_ctrl_m():
     """Global hotkey: Ctrl+M pastes the rewrite into the active window."""
     if pending_rewrite["current"] and not pending_rewrite["pasted"]:
         pyperclip.copy(pending_rewrite["current"])
         time.sleep(0.05)
-        keyboard.send("ctrl+v")
+        _simulate_paste()
         pending_rewrite["pasted"] = True
         log.info("  [OK] Rewrite pasted via Ctrl+M!")
         silent_notify("Clipboard Coach", "Rewrite pasted!")
@@ -315,9 +340,13 @@ def analyze_in_background(text, t_detected):
         threading.Thread(target=_run, daemon=True).start()
 
 
-# ── Windows Clipboard Listener ─────────────────────────────────────────
+# ── Windows Clipboard Listener + Hotkey ────────────────────────────────
 WM_CLIPBOARDUPDATE = 0x031D
+WM_HOTKEY = 0x0312
 WM_DESTROY = 0x0002
+MOD_CONTROL = 0x0002
+VK_M = 0x4D
+HOTKEY_ID_CTRL_M = 1
 
 user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
@@ -373,6 +402,9 @@ def create_clipboard_listener(callback):
             except Exception as e:
                 log.error("[!] Clipboard read error: %s", e)
             return 0
+        elif msg == WM_HOTKEY and wparam == HOTKEY_ID_CTRL_M:
+            on_ctrl_m()
+            return 0
         elif msg == WM_DESTROY:
             user32.PostQuitMessage(0)
             return 0
@@ -399,6 +431,12 @@ def create_clipboard_listener(callback):
 
     if not user32.AddClipboardFormatListener(hwnd):
         raise RuntimeError("Failed to add clipboard listener")
+
+    # Register Ctrl+M global hotkey
+    if user32.RegisterHotKey(hwnd, HOTKEY_ID_CTRL_M, MOD_CONTROL, VK_M):
+        log.info("  Ctrl+M hotkey registered")
+    else:
+        log.warning("  Failed to register Ctrl+M hotkey (may be in use by another app)")
 
     log.info("  Clipboard listener active (event-driven, no polling)")
 
@@ -498,6 +536,7 @@ def main():
     global provider
 
     auto_install()
+    _register_app_id()
 
     try:
         provider = load_provider_from_config()
@@ -509,7 +548,6 @@ def main():
             sys.exit(1)
         provider = load_provider_from_config()
 
-    keyboard.add_hotkey("ctrl+m", on_ctrl_m, suppress=True)
     start_tray_icon()
 
     log.info("-" * 60)
@@ -536,7 +574,6 @@ def main():
 
     if tray_icon:
         tray_icon.stop()
-    keyboard.unhook_all()
 
 
 if __name__ == "__main__":

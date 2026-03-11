@@ -22,7 +22,6 @@ def build():
         "--hidden-import", "openai",
         "--hidden-import", "anthropic",
         "--hidden-import", "win32clipboard",
-        "--hidden-import", "keyboard",
         "--hidden-import", "pyperclip",
         "--hidden-import", "win11toast",
         "--hidden-import", "tkinter",
