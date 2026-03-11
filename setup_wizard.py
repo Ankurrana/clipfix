@@ -22,7 +22,7 @@ def run_setup():
 
     root = tk.Tk()
     root.title("Clipboard Coach - Setup")
-    root.geometry("500x350")
+    root.geometry("520x420")
     root.resizable(False, False)
 
     # Center on screen
@@ -111,8 +111,8 @@ def run_setup():
     # Buttons
     btn_frame = ttk.Frame(root)
     btn_frame.pack(pady=10)
-    ttk.Button(btn_frame, text="Save & Start", command=save_config).pack(side="left", padx=5)
-    ttk.Button(btn_frame, text="Cancel", command=cancel).pack(side="left", padx=5)
+    ttk.Button(btn_frame, text="Connect", command=save_config).pack(side="left", padx=5)
+    ttk.Button(btn_frame, text="Quit", command=cancel).pack(side="left", padx=5)
 
     root.mainloop()
     return result["configured"]
