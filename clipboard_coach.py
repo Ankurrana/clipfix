@@ -124,40 +124,25 @@ if not BACKGROUND_MODE:
 
 
 # ── Notification (via system tray balloon) ─────────────────────────────
-_active_popup = {"ref": None, "lock": threading.Lock()}
+# Monotonically increasing ID — each new popup checks if it's still the latest.
+# If a newer popup has been requested, the older one auto-dismisses.
+_popup_generation = {"value": 0, "lock": threading.Lock()}
 
 
 def _show_popup(title, msg, duration_ms=6000):
     """Show a non-blocking popup in the bottom-right corner that auto-dismisses."""
     import tkinter as tk
 
-    # Dismiss any existing popup first
-    with _active_popup["lock"]:
-        prev = _active_popup["ref"]
-        if prev is not None:
-            try:
-                prev.after(0, prev.destroy)
-            except Exception:
-                pass
-            _active_popup["ref"] = None
+    # Claim a new generation ID so any older popup will self-dismiss
+    with _popup_generation["lock"]:
+        _popup_generation["value"] += 1
+        my_gen = _popup_generation["value"]
 
     popup = tk.Tk()
     popup.overrideredirect(True)  # No title bar
     popup.attributes("-topmost", True)  # Always on top
     popup.attributes("-alpha", 0.92)  # Slight transparency
     popup.configure(bg="#2d2d2d")
-
-    with _active_popup["lock"]:
-        _active_popup["ref"] = popup
-
-    def _dismiss():
-        with _active_popup["lock"]:
-            if _active_popup["ref"] is popup:
-                _active_popup["ref"] = None
-        try:
-            popup.destroy()
-        except Exception:
-            pass
 
     # Title
     tk.Label(
@@ -185,10 +170,20 @@ def _show_popup(title, msg, duration_ms=6000):
 
     # Click to dismiss
     for widget in [popup] + list(popup.winfo_children()):
-        widget.bind("<Button-1>", lambda e: _dismiss())
+        widget.bind("<Button-1>", lambda e: popup.destroy())
 
-    # Auto-dismiss
-    popup.after(duration_ms, _dismiss)
+    def _check_stale():
+        """Periodically check if a newer popup has been requested."""
+        with _popup_generation["lock"]:
+            if _popup_generation["value"] != my_gen:
+                popup.destroy()
+                return
+        popup.after(200, _check_stale)
+
+    # Auto-dismiss after duration
+    popup.after(duration_ms, popup.destroy)
+    # Poll for staleness (self-dismiss if a newer popup appeared)
+    popup.after(200, _check_stale)
 
     popup.mainloop()
 
@@ -395,6 +390,8 @@ def analyze_in_background(text, t_detected):
     if analyzing_lock.acquire(blocking=False):
         log.info("Detected message -- analyzing...")
         threading.Thread(target=_run, daemon=True).start()
+    else:
+        log.info("  [skip] Analysis already in progress, skipping")
 
 
 # ── Windows Clipboard Listener + Hotkey ────────────────────────────────
