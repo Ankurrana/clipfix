@@ -2,18 +2,18 @@
 
 Always-on clipboard text fixer for Windows. Monitors your clipboard, auto-corrects grammar, punctuation, and spelling, and improves communication impact — all powered by your choice of LLM.
 
-Copy a message before sending it. ClipFix analyzes it instantly, shows a silent Windows notification with feedback, and lets you paste the improved version with **Ctrl+M**.
+Copy a message before sending it. ClipFix analyzes it instantly, shows a silent Windows notification with feedback, and lets you paste the improved version with **Ctrl+Shift+;**.
 
 ## How It Works
 
 ```
-Copy text (Ctrl+C)  →  ClipFix analyzes it  →  Toast notification with feedback  →  Ctrl+M to paste rewrite
+Copy text (Ctrl+C)  →  ClipFix analyzes it  →  Toast notification with feedback  →  Ctrl+Shift+; to paste rewrite
 ```
 
 1. **You copy text** — ClipFix detects it instantly via a Windows clipboard listener (no polling).
 2. **LLM analyzes it** — Checks grammar, spelling, punctuation, and communication impact (hedging, passive voice, buried asks, etc.).
 3. **Notification appears** — A silent toast shows what's weak and the suggested rewrite.
-4. **Ctrl+M to paste** — Press Ctrl+M in any window to paste the improved version directly.
+4. **Ctrl+Shift+; to paste** — Press Ctrl+Shift+; in any window to paste the improved version directly.
 
 If your message is already good, you'll see a "Looks good — send it!" notification so you know it's safe to send.
 
@@ -25,7 +25,7 @@ If your message is already good, you'll see a "Looks good — send it!" notifica
 - **HTML clipboard support** — Reads rich text from Teams/Outlook to preserve list formatting
 - **Silent notifications** — No annoying sounds, just clean toast popups
 - **Rewrite preview** — Short rewrites shown directly in the notification
-- **Ctrl+M paste** — Global hotkey pastes the rewrite into any active window
+- **Ctrl+Shift+; paste** — Global hotkey pastes the rewrite into any active window
 - **Result caching** — Instant results for repeated clipboard content
 - **Pattern tracking** — Learns your recurring weak patterns and prioritizes coaching on them
 - **Pluggable LLM providers** — Azure OpenAI, OpenAI, Anthropic Claude, or any OpenAI-compatible API
@@ -188,7 +188,7 @@ python clipboard_coach.py --background
 
 In background mode:
 - Logs to `clipboard-coach.log` instead of console
-- All interaction via notifications and Ctrl+M
+- All interaction via notifications and Ctrl+Shift+;
 - Ideal for auto-start at login
 
 ## Running Tests

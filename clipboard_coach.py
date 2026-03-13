@@ -314,14 +314,14 @@ def _simulate_paste():
     user32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0)
 
 
-def on_ctrl_m():
-    """Global hotkey: Ctrl+M pastes the rewrite into the active window."""
+def on_paste_hotkey():
+    """Global hotkey: Ctrl+Shift+; pastes the rewrite into the active window."""
     if pending_rewrite["current"] and not pending_rewrite["pasted"]:
         pyperclip.copy(pending_rewrite["current"])
         time.sleep(0.05)
         _simulate_paste()
         pending_rewrite["pasted"] = True
-        log.info("  [OK] Rewrite pasted via Ctrl+M!")
+        log.info("  [OK] Rewrite pasted via Ctrl+Shift+;!")
         silent_notify("ClipFix", "Rewrite pasted!")
         telemetry.log_rewrite_pasted(pending_rewrite["current"])
 
@@ -346,10 +346,10 @@ def display_result(result):
         silent_notify(
             issue or "Communication Coach",
             nudge,
-            f"Rewrite: {rewrite}  --  Ctrl+M to paste",
+            f"Rewrite: {rewrite}  --  Ctrl+Shift+; to paste",
         )
     elif rewrite:
-        silent_notify(issue or "Communication Coach", nudge, "Ctrl+M to paste rewrite")
+        silent_notify(issue or "Communication Coach", nudge, "Ctrl+Shift+; to paste rewrite")
     else:
         silent_notify(issue or "Communication Coach", nudge)
 
@@ -386,7 +386,7 @@ def analyze_in_background(text, t_detected):
             if rewrite:
                 pending_rewrite["current"] = rewrite
                 pending_rewrite["pasted"] = False
-                log.info("  -> Press Ctrl+M anywhere to paste the rewrite")
+                log.info("  -> Press Ctrl+Shift+; anywhere to paste the rewrite")
         except Exception as e:
             log.error("[!] Error: %s", e)
         finally:
@@ -402,8 +402,9 @@ WM_CLIPBOARDUPDATE = 0x031D
 WM_HOTKEY = 0x0312
 WM_DESTROY = 0x0002
 MOD_CONTROL = 0x0002
-VK_M = 0x4D
-HOTKEY_ID_CTRL_M = 1
+MOD_SHIFT = 0x0004
+VK_OEM_1 = 0xBA  # semicolon key (;/:)
+HOTKEY_ID_PASTE = 1
 
 user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
@@ -459,8 +460,8 @@ def create_clipboard_listener(callback):
             except Exception as e:
                 log.error("[!] Clipboard read error: %s", e)
             return 0
-        elif msg == WM_HOTKEY and wparam == HOTKEY_ID_CTRL_M:
-            on_ctrl_m()
+        elif msg == WM_HOTKEY and wparam == HOTKEY_ID_PASTE:
+            on_paste_hotkey()
             return 0
         elif msg == WM_DESTROY:
             user32.PostQuitMessage(0)
@@ -489,11 +490,11 @@ def create_clipboard_listener(callback):
     if not user32.AddClipboardFormatListener(hwnd):
         raise RuntimeError("Failed to add clipboard listener")
 
-    # Register Ctrl+M global hotkey
-    if user32.RegisterHotKey(hwnd, HOTKEY_ID_CTRL_M, MOD_CONTROL, VK_M):
-        log.info("  Ctrl+M hotkey registered")
+    # Register Ctrl+Shift+; global hotkey
+    if user32.RegisterHotKey(hwnd, HOTKEY_ID_PASTE, MOD_CONTROL | MOD_SHIFT, VK_OEM_1):
+        log.info("  Ctrl+Shift+; hotkey registered")
     else:
-        log.warning("  Failed to register Ctrl+M hotkey (may be in use by another app)")
+        log.warning("  Failed to register Ctrl+Shift+; hotkey (may be in use by another app)")
 
     log.info("  Clipboard listener active (event-driven, no polling)")
 
@@ -897,7 +898,7 @@ def main():
     else:
         log.info("  Mode: INTERACTIVE")
     log.info("-" * 60)
-    log.info("  Copy a message -> get coaching -> Ctrl+M to paste rewrite")
+    log.info("  Copy a message -> get coaching -> Ctrl+Shift+; to paste rewrite")
     log.info("  Tray icon active -- right-click to quit")
     log.info("")
 
