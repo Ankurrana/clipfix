@@ -476,15 +476,20 @@ user32.DefWindowProcW.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_longl
 user32.DefWindowProcW.restype = ctypes.c_longlong
 
 
+# prevent GC of the ctypes callback — must stay alive for the lifetime of the window
+_wnd_proc_ref = None
+
+
 def create_clipboard_listener(callback):
     """Create a hidden window that listens for clipboard changes."""
+    global _wnd_proc_ref
     last_text = {"value": ""}
 
     def wnd_proc(hwnd, msg, wparam, lparam):
         if msg == WM_CLIPBOARDUPDATE:
             try:
                 current_text = get_clipboard_text()
-                if current_text != last_text["value"]:
+                if current_text and current_text != last_text["value"]:
                     last_text["value"] = current_text
                     if looks_like_message(current_text):
                         callback(current_text, time.perf_counter())
@@ -500,6 +505,7 @@ def create_clipboard_listener(callback):
         return user32.DefWindowProcW(hwnd, msg, wparam, lparam)
 
     wnd_proc_cb = WNDPROC(wnd_proc)
+    _wnd_proc_ref = (wnd_proc_cb, wnd_proc)  # prevent garbage collection of both
 
     wc = WNDCLASSW()
     wc.lpfnWndProc = ctypes.cast(wnd_proc_cb, ctypes.c_void_p)
