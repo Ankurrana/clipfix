@@ -131,6 +131,7 @@ if not BACKGROUND_MODE:
 import queue as _queue
 
 _notify_queue: _queue.Queue = _queue.Queue()
+_progress_queue: _queue.Queue = _queue.Queue()
 _tk_root = None  # set once by _notification_thread
 
 
@@ -147,12 +148,15 @@ def _notification_thread():
 
     def _poll_queue():
         """Check for new notification requests from other threads."""
+        # Only show the LATEST notification — skip intermediate ones
+        latest = None
         try:
             while True:
-                title, msg, duration_ms = _notify_queue.get_nowait()
-                _show(title, msg, duration_ms)
+                latest = _notify_queue.get_nowait()
         except _queue.Empty:
             pass
+        if latest is not None:
+            _show(*latest)
         # Check for progress window requests
         try:
             while _progress_queue.get_nowait():
@@ -768,8 +772,6 @@ tray_icon = None
 def _open_log():
     os.startfile(str(LOG_FILE))
 
-
-_progress_queue: _queue.Queue = _queue.Queue()
 
 
 def _show_progress():
