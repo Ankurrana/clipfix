@@ -220,8 +220,9 @@ def _notification_thread():
     root.mainloop()
 
 
-# Start the notification thread once at import time
-threading.Thread(target=_notification_thread, daemon=True).start()
+def start_notification_thread():
+    """Start the notification thread. Must be called once from main()."""
+    threading.Thread(target=_notification_thread, daemon=True).start()
 
 
 def silent_notify(title, line2, line3=None, duration_ms=6000):
@@ -916,6 +917,7 @@ def main():
             sys.exit(1)
         provider = load_provider_from_config()
 
+    start_notification_thread()
     start_tray_icon()
 
     telemetry.log_session_start(provider.display_name)
