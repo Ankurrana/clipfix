@@ -123,69 +123,105 @@ if not BACKGROUND_MODE:
     log.addHandler(console_handler)
 
 
-# ── Notification (via system tray balloon) ─────────────────────────────
-# Monotonically increasing ID — each new popup checks if it's still the latest.
-# If a newer popup has been requested, the older one auto-dismisses.
-_popup_generation = {"value": 0, "lock": threading.Lock()}
+# ── Notification (single tkinter thread) ──────────────────────────────
+# Tkinter is NOT thread-safe on Windows — multiple Tk() instances from
+# different threads cause access-violation crashes.  We run ONE persistent
+# tkinter thread that owns all popup widgets and drain a queue from it.
+
+import queue as _queue
+
+_notify_queue: _queue.Queue = _queue.Queue()
+_tk_root = None  # set once by _notification_thread
 
 
-def _show_popup(title, msg, duration_ms=6000):
-    """Show a non-blocking popup in the bottom-right corner that auto-dismisses."""
+def _notification_thread():
+    """Persistent thread: owns the single Tk root and processes popup requests."""
     import tkinter as tk
+    global _tk_root
 
-    # Claim a new generation ID so any older popup will self-dismiss
-    with _popup_generation["lock"]:
-        _popup_generation["value"] += 1
-        my_gen = _popup_generation["value"]
+    root = tk.Tk()
+    root.withdraw()  # hidden root — never shown
+    _tk_root = root
 
-    popup = tk.Tk()
-    popup.overrideredirect(True)  # No title bar
-    popup.attributes("-topmost", True)  # Always on top
-    popup.attributes("-alpha", 0.92)  # Slight transparency
-    popup.configure(bg="#2d2d2d")
+    _current_popup = {"win": None}
 
-    # Title
-    tk.Label(
-        popup, text=title, font=("Segoe UI", 11, "bold"),
-        fg="#4FC3F7", bg="#2d2d2d", anchor="w",
-    ).pack(fill="x", padx=12, pady=(10, 2))
+    def _poll_queue():
+        """Check for new notification requests from other threads."""
+        try:
+            while True:
+                title, msg, duration_ms = _notify_queue.get_nowait()
+                _show(title, msg, duration_ms)
+        except _queue.Empty:
+            pass
+        # Check for progress window requests
+        try:
+            while _progress_queue.get_nowait():
+                _build_progress_window()
+        except _queue.Empty:
+            pass
+        root.after(100, _poll_queue)
 
-    # Message
-    tk.Label(
-        popup, text=msg, font=("Segoe UI", 10),
-        fg="#ffffff", bg="#2d2d2d", anchor="w", justify="left",
-        wraplength=350,
-    ).pack(fill="x", padx=12, pady=(0, 10))
+    def _show(title, msg, duration_ms):
+        # Dismiss existing popup
+        if _current_popup["win"] is not None:
+            try:
+                _current_popup["win"].destroy()
+            except Exception:
+                pass
+            _current_popup["win"] = None
 
-    popup.update_idletasks()
+        popup = tk.Toplevel(root)
+        popup.overrideredirect(True)
+        popup.attributes("-topmost", True)
+        popup.attributes("-alpha", 0.92)
+        popup.configure(bg="#2d2d2d")
+        _current_popup["win"] = popup
 
-    # Position bottom-right of screen
-    w = max(popup.winfo_reqwidth(), 380)
-    h = popup.winfo_reqheight()
-    screen_w = popup.winfo_screenwidth()
-    screen_h = popup.winfo_screenheight()
-    x = screen_w - w - 20
-    y = screen_h - h - 80  # Above taskbar
-    popup.geometry(f"{w}x{h}+{x}+{y}")
-
-    # Click to dismiss
-    for widget in [popup] + list(popup.winfo_children()):
-        widget.bind("<Button-1>", lambda e: popup.destroy())
-
-    def _check_stale():
-        """Periodically check if a newer popup has been requested."""
-        with _popup_generation["lock"]:
-            if _popup_generation["value"] != my_gen:
+        def _dismiss():
+            if _current_popup["win"] is popup:
+                _current_popup["win"] = None
+            try:
                 popup.destroy()
-                return
-        popup.after(200, _check_stale)
+            except Exception:
+                pass
 
-    # Auto-dismiss after duration
-    popup.after(duration_ms, popup.destroy)
-    # Poll for staleness (self-dismiss if a newer popup appeared)
-    popup.after(200, _check_stale)
+        # Title
+        tk.Label(
+            popup, text=title, font=("Segoe UI", 11, "bold"),
+            fg="#4FC3F7", bg="#2d2d2d", anchor="w",
+        ).pack(fill="x", padx=12, pady=(10, 2))
 
-    popup.mainloop()
+        # Message
+        tk.Label(
+            popup, text=msg, font=("Segoe UI", 10),
+            fg="#ffffff", bg="#2d2d2d", anchor="w", justify="left",
+            wraplength=350,
+        ).pack(fill="x", padx=12, pady=(0, 10))
+
+        popup.update_idletasks()
+
+        # Position bottom-right of screen
+        w = max(popup.winfo_reqwidth(), 380)
+        h = popup.winfo_reqheight()
+        screen_w = popup.winfo_screenwidth()
+        screen_h = popup.winfo_screenheight()
+        x = screen_w - w - 20
+        y = screen_h - h - 80
+        popup.geometry(f"{w}x{h}+{x}+{y}")
+
+        # Click to dismiss
+        for widget in [popup] + list(popup.winfo_children()):
+            widget.bind("<Button-1>", lambda e: _dismiss())
+
+        # Auto-dismiss
+        popup.after(duration_ms, _dismiss)
+
+    root.after(100, _poll_queue)
+    root.mainloop()
+
+
+# Start the notification thread once at import time
+threading.Thread(target=_notification_thread, daemon=True).start()
 
 
 def silent_notify(title, line2, line3=None, duration_ms=6000):
@@ -195,14 +231,7 @@ def silent_notify(title, line2, line3=None, duration_ms=6000):
         msg = f"{line2}\n{line3}"
 
     log.info("  [notify] %s: %s", title, msg.replace("\n", " | "))
-
-    def _send():
-        try:
-            _show_popup(title, msg, duration_ms)
-        except Exception as e:
-            log.warning("  [notify] popup failed: %s", e)
-
-    threading.Thread(target=_send, daemon=True).start()
+    _notify_queue.put((title, msg, duration_ms))
 
 
 # ── LLM Provider (loaded at startup) ──────────────────────────────────
@@ -739,14 +768,22 @@ def _open_log():
     os.startfile(str(LOG_FILE))
 
 
+_progress_queue: _queue.Queue = _queue.Queue()
+
+
 def _show_progress():
-    """Show a rich 'My Progress' window with key metrics."""
+    """Queue a 'My Progress' window to be shown on the tkinter thread."""
+    _progress_queue.put(True)
+
+
+def _build_progress_window():
+    """Build the progress window (must be called from the tkinter thread)."""
     import tkinter as tk
 
     all_stats = telemetry.summary()
     week_stats = telemetry.weekly_stats()
 
-    win = tk.Tk()
+    win = tk.Toplevel(_tk_root)
     win.title("ClipFix - My Progress")
     win.configure(bg="#1e1e1e")
     win.resizable(False, False)
@@ -835,8 +872,6 @@ def _show_progress():
     y = (win.winfo_screenheight() - h) // 2
     win.geometry(f"{w}x{h}+{x}+{y}")
 
-    win.mainloop()
-
 
 def _quit_app(icon):
     log.info("Quit from tray.")
@@ -850,8 +885,7 @@ def start_tray_icon():
     menu = Menu(
         MenuItem("ClipFix is running", lambda: None, enabled=False),
         Menu.SEPARATOR,
-        MenuItem("My Progress", lambda: threading.Thread(
-            target=_show_progress, daemon=True).start()),
+        MenuItem("My Progress", lambda: _show_progress()),
         MenuItem("Open log file", lambda: _open_log()),
         MenuItem("Quit", lambda: _quit_app(tray_icon)),
     )
