@@ -1,4 +1,4 @@
-"""First-run setup wizard for Clipboard Coach."""
+"""First-run setup wizard for ClipFix."""
 import json
 import os
 import sys
@@ -7,7 +7,7 @@ from tkinter import ttk, messagebox
 from pathlib import Path
 
 if getattr(sys, "frozen", False):
-    APP_DIR = Path(os.environ.get("LOCALAPPDATA", "")) / "ClipboardCoach"
+    APP_DIR = Path(os.environ.get("LOCALAPPDATA", "")) / "ClipFix"
 else:
     APP_DIR = Path(__file__).parent
 APP_DIR.mkdir(parents=True, exist_ok=True)
@@ -25,7 +25,7 @@ def run_setup():
             return True
 
     root = tk.Tk()
-    root.title("Clipboard Coach - Setup")
+    root.title("ClipFix - Setup")
     root.geometry("520x450")
     root.resizable(False, False)
 
@@ -38,7 +38,7 @@ def run_setup():
     result = {"configured": False}
 
     # Header
-    ttk.Label(root, text="Clipboard Coach Setup", font=("Segoe UI", 14, "bold")).pack(pady=(15, 5))
+    ttk.Label(root, text="ClipFix Setup", font=("Segoe UI", 14, "bold")).pack(pady=(15, 5))
     ttk.Label(root, text="Choose your LLM provider:", font=("Segoe UI", 10)).pack(pady=(0, 10))
 
     # Provider selection

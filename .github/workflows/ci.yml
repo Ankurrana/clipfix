@@ -38,12 +38,12 @@ jobs:
 
       - name: Verify exe was created
         run: |
-          if (!(Test-Path "dist/ClipboardCoach.exe")) { exit 1 }
-          $size = (Get-Item "dist/ClipboardCoach.exe").Length / 1MB
+          if (!(Test-Path "dist/ClipFix.exe")) { exit 1 }
+          $size = (Get-Item "dist/ClipFix.exe").Length / 1MB
           Write-Host "Exe size: $([math]::Round($size, 1)) MB"
 
       - name: Upload exe as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ClipboardCoach
-          path: dist/ClipboardCoach.exe
+          name: ClipFix
+          path: dist/ClipFix.exe

@@ -17,6 +17,7 @@ from PIL import Image, ImageDraw, ImageFont
 from pystray import Icon, Menu, MenuItem
 
 from providers import load_provider_from_config
+from telemetry import Telemetry
 
 # ── HTML-to-Text Converter (preserves lists) ──────────────────────────
 class _HTMLToText(HTMLParser):
@@ -94,7 +95,7 @@ MAX_WORDS = 500
 # Use AppData for data files (reliable path for both .py and .exe)
 if getattr(sys, "frozen", False):
     # Running as PyInstaller exe
-    APP_DIR = Path(os.environ.get("LOCALAPPDATA", "")) / "ClipboardCoach"
+    APP_DIR = Path(os.environ.get("LOCALAPPDATA", "")) / "ClipFix"
 else:
     # Running as Python script
     APP_DIR = Path(__file__).parent
@@ -104,6 +105,7 @@ HISTORY_FILE = APP_DIR / "coaching-history.json"
 LOG_FILE = APP_DIR / "clipfix.log"
 
 BACKGROUND_MODE = "--background" in sys.argv
+telemetry = Telemetry(APP_DIR)
 
 # ── Logging (always log to file + console when available) ──────────────
 log = logging.getLogger("coach")
@@ -122,15 +124,40 @@ if not BACKGROUND_MODE:
 
 
 # ── Notification (via system tray balloon) ─────────────────────────────
+_active_popup = {"ref": None, "lock": threading.Lock()}
+
+
 def _show_popup(title, msg, duration_ms=6000):
     """Show a non-blocking popup in the bottom-right corner that auto-dismisses."""
     import tkinter as tk
+
+    # Dismiss any existing popup first
+    with _active_popup["lock"]:
+        prev = _active_popup["ref"]
+        if prev is not None:
+            try:
+                prev.after(0, prev.destroy)
+            except Exception:
+                pass
+            _active_popup["ref"] = None
 
     popup = tk.Tk()
     popup.overrideredirect(True)  # No title bar
     popup.attributes("-topmost", True)  # Always on top
     popup.attributes("-alpha", 0.92)  # Slight transparency
     popup.configure(bg="#2d2d2d")
+
+    with _active_popup["lock"]:
+        _active_popup["ref"] = popup
+
+    def _dismiss():
+        with _active_popup["lock"]:
+            if _active_popup["ref"] is popup:
+                _active_popup["ref"] = None
+        try:
+            popup.destroy()
+        except Exception:
+            pass
 
     # Title
     tk.Label(
@@ -158,15 +185,15 @@ def _show_popup(title, msg, duration_ms=6000):
 
     # Click to dismiss
     for widget in [popup] + list(popup.winfo_children()):
-        widget.bind("<Button-1>", lambda e: popup.destroy())
+        widget.bind("<Button-1>", lambda e: _dismiss())
 
     # Auto-dismiss
-    popup.after(duration_ms, popup.destroy)
+    popup.after(duration_ms, _dismiss)
 
     popup.mainloop()
 
 
-def silent_notify(title, line2, line3=None):
+def silent_notify(title, line2, line3=None, duration_ms=6000):
     """Show a popup notification in the bottom-right corner."""
     msg = line2
     if line3:
@@ -176,7 +203,7 @@ def silent_notify(title, line2, line3=None):
 
     def _send():
         try:
-            _show_popup(title, msg)
+            _show_popup(title, msg, duration_ms)
         except Exception as e:
             log.warning("  [notify] popup failed: %s", e)
 
@@ -295,14 +322,15 @@ def on_ctrl_m():
         _simulate_paste()
         pending_rewrite["pasted"] = True
         log.info("  [OK] Rewrite pasted via Ctrl+M!")
-        silent_notify("Clipboard Coach", "Rewrite pasted!")
+        silent_notify("ClipFix", "Rewrite pasted!")
+        telemetry.log_rewrite_pasted(pending_rewrite["current"])
 
 
 # ── Display ─────────────────────────────────────────────────────────────
 def display_result(result):
     if result["verdict"] == "good":
         log.info("[OK] Looks good -- send it.")
-        silent_notify("Clipboard Coach", "Looks good -- send it!")
+        silent_notify("ClipFix", "Looks good -- send it!")
         return None
 
     issue = result.get("issue", "")
@@ -345,6 +373,16 @@ def analyze_in_background(text, t_detected):
             t_total = time.perf_counter() - t_detected
             log.info("  [timing] End-to-end: %.2fs (API: %.2fs, overhead: %.2fs)",
                      t_total, api_duration, t_total - api_duration)
+
+            # Record telemetry
+            telemetry.log_analysis(
+                input_text=text,
+                result=result,
+                api_duration=api_duration,
+                total_duration=t_total,
+                cached=(api_duration == 0.0),
+            )
+
             if rewrite:
                 pending_rewrite["current"] = rewrite
                 pending_rewrite["pasted"] = False
@@ -434,14 +472,14 @@ def create_clipboard_listener(callback):
     wc = WNDCLASSW()
     wc.lpfnWndProc = ctypes.cast(wnd_proc_cb, ctypes.c_void_p)
     wc.hInstance = kernel32.GetModuleHandleW(None)
-    wc.lpszClassName = "ClipboardCoachListener"
+    wc.lpszClassName = "ClipFixListener"
 
     class_atom = user32.RegisterClassW(ctypes.byref(wc))
     if not class_atom:
         raise RuntimeError("Failed to register window class")
 
     hwnd = user32.CreateWindowExW(
-        0, wc.lpszClassName, "Clipboard Coach",
+        0, wc.lpszClassName, "ClipFix",
         0, 0, 0, 0, 0,
         None, None, wc.hInstance, None,
     )
@@ -468,47 +506,219 @@ def create_clipboard_listener(callback):
     user32.DestroyWindow(hwnd)
 
 
+# ── Single Instance (mutex) ────────────────────────────────────────────
+MUTEX_NAME = "Global\\ClipFix_SingleInstance"
+_mutex_handle = None
+
+
+def ensure_single_instance():
+    """Ensure only one instance of ClipFix is running.
+
+    Uses a Windows named mutex. If another instance holds the mutex,
+    terminate it gracefully before proceeding.
+    """
+    global _mutex_handle
+    import subprocess
+
+    # Kill any existing ClipFix processes (except ourselves)
+    my_pid = os.getpid()
+    try:
+        # tasklist outputs lines like: ClipFix.exe    1234 Console  1  25,000 K
+        result = subprocess.run(
+            ["tasklist", "/FI", "IMAGENAME eq ClipFix.exe", "/FO", "CSV", "/NH"],
+            capture_output=True, text=True, timeout=5,
+        )
+        for line in result.stdout.strip().splitlines():
+            parts = line.strip('"').split('","')
+            if len(parts) >= 2:
+                try:
+                    pid = int(parts[1])
+                    if pid != my_pid:
+                        log.info("  Stopping previous instance (PID %d)...", pid)
+                        subprocess.run(
+                            ["taskkill", "/PID", str(pid), "/F"],
+                            capture_output=True, timeout=5,
+                        )
+                except (ValueError, IndexError):
+                    continue
+    except Exception as e:
+        log.warning("  Could not check for existing instances: %s", e)
+
+    # Also kill by window class name for dev mode (python clipboard_coach.py)
+    # where the process name won't be ClipFix.exe
+    try:
+        existing_hwnd = user32.FindWindowW("ClipFixListener", None)
+        if existing_hwnd:
+            log.info("  Found existing ClipFix listener window, sending close...")
+            WM_CLOSE = 0x0010
+            user32.PostMessageW(existing_hwnd, WM_CLOSE, 0, 0)
+            time.sleep(0.5)
+    except Exception:
+        pass
+
+    # Acquire mutex to prevent future duplicates
+    _mutex_handle = ctypes.windll.kernel32.CreateMutexW(None, True, MUTEX_NAME)
+    last_error = ctypes.windll.kernel32.GetLastError()
+    ERROR_ALREADY_EXISTS = 183
+    if last_error == ERROR_ALREADY_EXISTS:
+        # Another instance grabbed the mutex between our kill and here — wait briefly
+        time.sleep(1)
+        _mutex_handle = ctypes.windll.kernel32.CreateMutexW(None, True, MUTEX_NAME)
+
+
+# ── Registry: Add/Remove Programs ─────────────────────────────────────
+UNINSTALL_REG_KEY = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\ClipFix"
+APP_VERSION = "1.0.0"
+
+
+def _register_uninstaller(install_dir: Path, installed_exe: Path):
+    """Register ClipFix in Windows 'Apps & Features' / Control Panel."""
+    import winreg
+    try:
+        key = winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, UNINSTALL_REG_KEY, 0,
+                                 winreg.KEY_WRITE)
+        winreg.SetValueEx(key, "DisplayName", 0, winreg.REG_SZ, "ClipFix")
+        winreg.SetValueEx(key, "DisplayVersion", 0, winreg.REG_SZ, APP_VERSION)
+        winreg.SetValueEx(key, "Publisher", 0, winreg.REG_SZ, "ClipFix")
+        winreg.SetValueEx(key, "InstallLocation", 0, winreg.REG_SZ,
+                          str(install_dir))
+        winreg.SetValueEx(key, "UninstallString", 0, winreg.REG_SZ,
+                          f'"{installed_exe}" --uninstall')
+        winreg.SetValueEx(key, "QuietUninstallString", 0, winreg.REG_SZ,
+                          f'"{installed_exe}" --uninstall --quiet')
+        winreg.SetValueEx(key, "NoModify", 0, winreg.REG_DWORD, 1)
+        winreg.SetValueEx(key, "NoRepair", 0, winreg.REG_DWORD, 1)
+        # Estimated size in KB
+        try:
+            size_kb = int(installed_exe.stat().st_size / 1024)
+            winreg.SetValueEx(key, "EstimatedSize", 0, winreg.REG_DWORD, size_kb)
+        except Exception:
+            pass
+        winreg.CloseKey(key)
+        log.info("  Registered in Apps & Features")
+    except Exception as e:
+        log.warning("  Could not register uninstaller: %s", e)
+
+
+def _remove_uninstaller_registry():
+    """Remove ClipFix from Windows 'Apps & Features'."""
+    import winreg
+    try:
+        winreg.DeleteKey(winreg.HKEY_CURRENT_USER, UNINSTALL_REG_KEY)
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        log.warning("  Could not remove registry entry: %s", e)
+
+
+def run_uninstall(quiet=False):
+    """Full uninstall: stop app, remove files, shortcuts, and registry entry."""
+    import shutil
+    import subprocess
+
+    install_dir = Path(os.environ.get("LOCALAPPDATA", "")) / "ClipFix"
+
+    # Stop running instances
+    try:
+        subprocess.run(["taskkill", "/F", "/IM", "ClipFix.exe"],
+                       capture_output=True, timeout=5)
+    except Exception:
+        pass
+
+    # Remove startup shortcut
+    startup_dir = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+    for name in ("ClipFix.lnk",):
+        p = startup_dir / name
+        if p.exists():
+            p.unlink(missing_ok=True)
+
+    # Remove Start Menu shortcut
+    start_menu = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs"
+    for name in ("ClipFix.lnk",):
+        p = start_menu / name
+        if p.exists():
+            p.unlink(missing_ok=True)
+
+    # Remove registry entry
+    _remove_uninstaller_registry()
+
+    # Remove install directory
+    if install_dir.exists():
+        shutil.rmtree(install_dir, ignore_errors=True)
+
+    if not quiet:
+        try:
+            import tkinter as tk
+            from tkinter import messagebox
+            root = tk.Tk()
+            root.withdraw()
+            messagebox.showinfo("ClipFix", "ClipFix has been uninstalled.")
+            root.destroy()
+        except Exception:
+            pass
+
+    sys.exit(0)
+
+
 # ── Auto-Install (first run as exe) ───────────────────────────────────
 def auto_install():
-    """When running as exe, copy to AppData and create startup shortcut if not already installed."""
+    """When running as exe, stop any previous instance, clean-install to AppData."""
     if not getattr(sys, "frozen", False):
         return  # Only for .exe
 
-    install_dir = Path(os.environ.get("LOCALAPPDATA", "")) / "ClipboardCoach"
-    installed_exe = install_dir / "ClipboardCoach.exe"
+    import shutil
+    import subprocess
+
+    install_dir = Path(os.environ.get("LOCALAPPDATA", "")) / "ClipFix"
+    installed_exe = install_dir / "ClipFix.exe"
     current_exe = Path(sys.executable)
 
     # Already running from install dir
     if current_exe.parent.resolve() == install_dir.resolve():
         return
 
+    # Remove previous installation completely
+    if install_dir.exists():
+        log.info("  Removing previous installation at %s", install_dir)
+        # Keep user data files (config, telemetry, history)
+        keep = {"config.json", "telemetry.jsonl", "coaching-history.json"}
+        for item in install_dir.iterdir():
+            if item.name not in keep:
+                try:
+                    if item.is_dir():
+                        shutil.rmtree(item)
+                    else:
+                        item.unlink()
+                except Exception as e:
+                    log.warning("  Could not remove %s: %s", item.name, e)
+
     install_dir.mkdir(parents=True, exist_ok=True)
 
-    # Copy exe to install dir
-    import shutil
+    # Copy fresh exe
     shutil.copy2(str(current_exe), str(installed_exe))
     log.info("Installed to %s", installed_exe)
 
-    # Create startup shortcut for auto-start at login
+    # Create/overwrite startup shortcut for auto-start at login
     startup_dir = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
     shortcut_path = startup_dir / "ClipFix.lnk"
-    if not shortcut_path.exists():
-        try:
-            import subprocess
-            ps_cmd = (
-                f'$ws = New-Object -ComObject WScript.Shell; '
-                f'$sc = $ws.CreateShortcut("{shortcut_path}"); '
-                f'$sc.TargetPath = "{installed_exe}"; '
-                f'$sc.Arguments = "--background"; '
-                f'$sc.WorkingDirectory = "{install_dir}"; '
-                f'$sc.Description = "ClipFix"; '
-                f'$sc.Save()'
-            )
-            subprocess.run(["powershell", "-Command", ps_cmd],
-                           capture_output=True, timeout=10)
-            log.info("Auto-start shortcut created")
-        except Exception as e:
-            log.warning("Could not create startup shortcut: %s", e)
+    try:
+        ps_cmd = (
+            f'$ws = New-Object -ComObject WScript.Shell; '
+            f'$sc = $ws.CreateShortcut("{shortcut_path}"); '
+            f'$sc.TargetPath = "{installed_exe}"; '
+            f'$sc.Arguments = "--background"; '
+            f'$sc.WorkingDirectory = "{install_dir}"; '
+            f'$sc.Description = "ClipFix"; '
+            f'$sc.Save()'
+        )
+        subprocess.run(["powershell", "-Command", ps_cmd],
+                       capture_output=True, timeout=10)
+        log.info("Auto-start shortcut created")
+    except Exception as e:
+        log.warning("Could not create startup shortcut: %s", e)
+
+    # Register in Apps & Features so users can uninstall from Control Panel
+    _register_uninstaller(install_dir, installed_exe)
 
 
 # ── System Tray Icon ──────────────────────────────────────────────────
@@ -531,6 +741,105 @@ def _open_log():
     os.startfile(str(LOG_FILE))
 
 
+def _show_progress():
+    """Show a rich 'My Progress' window with key metrics."""
+    import tkinter as tk
+
+    all_stats = telemetry.summary()
+    week_stats = telemetry.weekly_stats()
+
+    win = tk.Tk()
+    win.title("ClipFix - My Progress")
+    win.configure(bg="#1e1e1e")
+    win.resizable(False, False)
+    win.attributes("-topmost", True)
+
+    BG = "#1e1e1e"
+    FG = "#e0e0e0"
+    CYAN = "#4FC3F7"
+    GREEN = "#66BB6A"
+    YELLOW = "#FFD54F"
+    DIM = "#888888"
+
+    def heading(parent, text):
+        tk.Label(parent, text=text, font=("Segoe UI", 13, "bold"),
+                 fg=CYAN, bg=BG, anchor="w").pack(fill="x", padx=16, pady=(12, 2))
+
+    def metric(parent, label, value, color=FG):
+        f = tk.Frame(parent, bg=BG)
+        f.pack(fill="x", padx=24, pady=1)
+        tk.Label(f, text=label, font=("Segoe UI", 10), fg=DIM, bg=BG,
+                 anchor="w", width=22).pack(side="left")
+        tk.Label(f, text=str(value), font=("Segoe UI", 10, "bold"), fg=color,
+                 bg=BG, anchor="e").pack(side="right")
+
+    def separator(parent):
+        tk.Frame(parent, bg="#333333", height=1).pack(fill="x", padx=16, pady=6)
+
+    # ── This week ──
+    heading(win, "This Week (7 days)")
+    w_total = week_stats["verdicts"]["good"] + week_stats["verdicts"]["improve"]
+    metric(win, "Messages analyzed", w_total)
+    metric(win, "Clean (no fixes needed)", f"{week_stats['clean_rate']}%",
+           GREEN if week_stats["clean_rate"] >= 70 else YELLOW)
+    metric(win, "Rewrites pasted", week_stats["total_rewrites_pasted"])
+
+    # Trend vs previous week
+    prev = telemetry.prev_weekly_stats()
+    if prev["total_analyses"] > 0:
+        delta = week_stats["clean_rate"] - prev["clean_rate"]
+        if delta > 0:
+            metric(win, "vs. last week", f"+{delta}pp", GREEN)
+        elif delta < 0:
+            metric(win, "vs. last week", f"{delta}pp", YELLOW)
+        else:
+            metric(win, "vs. last week", "steady", DIM)
+
+    separator(win)
+
+    # ── All time ──
+    heading(win, "All Time")
+    metric(win, "Sessions", all_stats["total_sessions"])
+    metric(win, "Total analyses", all_stats["total_analyses"])
+    metric(win, "Clean rate", f"{all_stats['clean_rate']}%",
+           GREEN if all_stats["clean_rate"] >= 70 else YELLOW)
+    if all_stats["verdicts"]["improve"] > 0:
+        metric(win, "Acceptance rate", f"{all_stats['acceptance_rate']}%")
+
+    separator(win)
+
+    # ── Top issues ──
+    if all_stats["top_issues"]:
+        heading(win, "Top Issues")
+        max_count = all_stats["top_issues"][0][1] if all_stats["top_issues"] else 1
+        for issue, count in all_stats["top_issues"][:5]:
+            f = tk.Frame(win, bg=BG)
+            f.pack(fill="x", padx=24, pady=1)
+            tk.Label(f, text=issue, font=("Segoe UI", 10), fg=FG, bg=BG,
+                     anchor="w", width=20).pack(side="left")
+            # Text bar
+            bar_len = max(1, int(count / max_count * 12))
+            bar = "\u2588" * bar_len
+            tk.Label(f, text=f"{bar} {count}", font=("Consolas", 9),
+                     fg=CYAN, bg=BG, anchor="w").pack(side="left", padx=(4, 0))
+
+    # ── Close button ──
+    tk.Button(win, text="Close", command=win.destroy,
+              bg="#333333", fg=FG, font=("Segoe UI", 9),
+              relief="flat", padx=16, pady=4,
+              ).pack(pady=(10, 12))
+
+    # Center on screen
+    win.update_idletasks()
+    w = max(win.winfo_reqwidth(), 360)
+    h = win.winfo_reqheight()
+    x = (win.winfo_screenwidth() - w) // 2
+    y = (win.winfo_screenheight() - h) // 2
+    win.geometry(f"{w}x{h}+{x}+{y}")
+
+    win.mainloop()
+
+
 def _quit_app(icon):
     log.info("Quit from tray.")
     icon.stop()
@@ -543,6 +852,8 @@ def start_tray_icon():
     menu = Menu(
         MenuItem("ClipFix is running", lambda: None, enabled=False),
         Menu.SEPARATOR,
+        MenuItem("My Progress", lambda: threading.Thread(
+            target=_show_progress, daemon=True).start()),
         MenuItem("Open log file", lambda: _open_log()),
         MenuItem("Quit", lambda: _quit_app(tray_icon)),
     )
@@ -560,6 +871,7 @@ def start_tray_icon():
 def main():
     global provider
 
+    ensure_single_instance()
     auto_install()
 
     try:
@@ -573,6 +885,8 @@ def main():
         provider = load_provider_from_config()
 
     start_tray_icon()
+
+    telemetry.log_session_start(provider.display_name)
 
     log.info("-" * 60)
     log.info("  CLIPFIX -- Always-on clipboard text fixer")
@@ -591,8 +905,21 @@ def main():
     if top_patterns:
         log.info("  Your recurring patterns: %s", ", ".join(top_patterns))
 
-    # Startup notification to confirm notifications work
-    silent_notify("ClipFix", "Running! Copy a message to get started.")
+    # Startup summary: show weekly digest if due, else a quick one-liner
+    if telemetry.should_show_weekly_digest():
+        digest = telemetry.weekly_digest()
+        if digest:
+            silent_notify("ClipFix - Weekly Digest", digest, duration_ms=12000)
+            telemetry.mark_weekly_digest_shown()
+            log.info("  [digest] Weekly digest shown")
+        else:
+            silent_notify("ClipFix", "Running! Copy a message to get started.")
+    else:
+        startup_msg = telemetry.startup_summary()
+        if startup_msg:
+            silent_notify("ClipFix", startup_msg, duration_ms=8000)
+        else:
+            silent_notify("ClipFix", "Running! Copy a message to get started.")
 
     try:
         create_clipboard_listener(analyze_in_background)
@@ -604,6 +931,9 @@ def main():
 
 
 if __name__ == "__main__":
+    if "--uninstall" in sys.argv:
+        run_uninstall(quiet="--quiet" in sys.argv)
+
     try:
         main()
     except Exception as e:

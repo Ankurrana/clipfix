@@ -1,4 +1,4 @@
-"""Build Clipboard Coach into a Windows executable."""
+"""Build ClipFix into a Windows executable."""
 import subprocess
 import sys
 from pathlib import Path
@@ -6,18 +6,18 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).parent
 
 def build():
-    print("Building Clipboard Coach...")
+    print("Building ClipFix...")
     print("=" * 60)
 
     cmd = [
         sys.executable, "-m", "PyInstaller",
-        "--name", "ClipboardCoach",
+        "--name", "ClipFix",
         "--onefile",
         "--windowed",              # No console window (uses notifications)
-        "--uac-admin",             # Request admin elevation via UAC prompt
         "--manifest", str(SCRIPT_DIR / "clipboard_coach.manifest"),
         "--add-data", f"{SCRIPT_DIR / 'providers.py'};.",
         "--add-data", f"{SCRIPT_DIR / 'setup_wizard.py'};.",
+        "--add-data", f"{SCRIPT_DIR / 'telemetry.py'};.",
         "--add-data", f"{SCRIPT_DIR / 'config.example.json'};.",
         "--hidden-import", "openai",
         "--hidden-import", "anthropic",
@@ -32,7 +32,7 @@ def build():
     result = subprocess.run(cmd, cwd=str(SCRIPT_DIR))
 
     if result.returncode == 0:
-        exe_path = SCRIPT_DIR / "dist" / "ClipboardCoach.exe"
+        exe_path = SCRIPT_DIR / "dist" / "ClipFix.exe"
         print()
         print("=" * 60)
         print(f"  BUILD SUCCESSFUL!")

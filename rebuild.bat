@@ -1,11 +1,11 @@
 @echo off
 echo ============================================================
-echo   Clipboard Coach - Rebuild and Reinstall
+echo   ClipFix - Rebuild and Reinstall
 echo ============================================================
 echo.
 
 :: Stop running instances
-taskkill /f /im ClipboardCoach.exe 2>nul
+taskkill /f /im ClipFix.exe 2>nul
 timeout /t 2 /nobreak >nul
 
 :: Rebuild
@@ -30,9 +30,9 @@ if %errorlevel% neq 0 (
 :: Reinstall
 echo.
 echo [3/3] Installing...
-set INSTALL_DIR=%LOCALAPPDATA%\ClipboardCoach
+set INSTALL_DIR=%LOCALAPPDATA%\ClipFix
 if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
-copy /y dist\ClipboardCoach.exe "%INSTALL_DIR%\ClipboardCoach.exe" >nul
+copy /y dist\ClipFix.exe "%INSTALL_DIR%\ClipFix.exe" >nul
 if exist config.json copy /y config.json "%INSTALL_DIR%\config.json" >nul
 
 echo.
@@ -41,5 +41,5 @@ echo   Done! Updated executable installed.
 echo ============================================================
 echo.
 set /p LAUNCH="Launch now? (y/n): "
-if /i "%LAUNCH%"=="y" start "" "%INSTALL_DIR%\ClipboardCoach.exe"
+if /i "%LAUNCH%"=="y" start "" "%INSTALL_DIR%\ClipFix.exe"
 pause

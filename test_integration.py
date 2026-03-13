@@ -1,4 +1,4 @@
-"""Integration tests for Clipboard Coach."""
+"""Integration tests for ClipFix."""
 import json
 import os
 import sys
@@ -37,7 +37,7 @@ def test(name, fn):
 
 # ── Tests ───────────────────────────────────────────────────────────────
 print("=" * 60)
-print("  Clipboard Coach -- Integration Tests")
+print("  ClipFix -- Integration Tests")
 print("=" * 60)
 
 

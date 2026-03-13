@@ -1,6 +1,6 @@
 @echo off
 echo ============================================================
-echo   Clipboard Coach -- Service Installer
+echo   ClipFix -- Service Installer
 echo ============================================================
 echo.
 
@@ -29,11 +29,11 @@ echo Mode:    Background (auto-copy rewrites)
 echo.
 
 :: Delete existing task if present
-schtasks /delete /tn "ClipboardCoach" /f >nul 2>&1
+schtasks /delete /tn "ClipFix" /f >nul 2>&1
 
 :: Create scheduled task to run at logon
 schtasks /create ^
-    /tn "ClipboardCoach" ^
+    /tn "ClipFix" ^
     /tr "\"%PYTHONW%\" \"%SCRIPT%\" --background" ^
     /sc onlogon ^
     /rl highest ^
@@ -41,17 +41,17 @@ schtasks /create ^
 
 if %errorlevel% equ 0 (
     echo.
-    echo [OK] Scheduled task "ClipboardCoach" created successfully.
+    echo [OK] Scheduled task "ClipFix" created successfully.
     echo     It will start automatically when you log in.
     echo.
     echo To start it now:
-    echo     schtasks /run /tn "ClipboardCoach"
+    echo     schtasks /run /tn "ClipFix"
     echo.
     echo To stop it:
     echo     taskkill /f /im pythonw.exe
     echo.
     echo To remove it:
-    echo     schtasks /delete /tn "ClipboardCoach" /f
+    echo     schtasks /delete /tn "ClipFix" /f
     echo.
     echo Log file: %SCRIPT_DIR%clipboard-coach.log
 ) else (

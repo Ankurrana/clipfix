@@ -51,7 +51,7 @@ python clipboard_coach.py
 
 ### Option B: Run the standalone .exe (end users)
 
-Download `ClipboardCoach.exe` from the [Releases](https://github.com/Ankurrana/clipfix/releases) page and double-click it. A setup wizard will prompt for your LLM provider and API key on first run.
+Download `ClipFix.exe` from the [Releases](https://github.com/Ankurrana/clipfix/releases) page and double-click it. A setup wizard will prompt for your LLM provider and API key on first run.
 
 ## Configuration
 
@@ -143,16 +143,16 @@ See `config.example.json` for all options.
 python build.py
 ```
 
-This creates `dist/ClipboardCoach.exe` — a standalone 21 MB executable that includes Python and all dependencies.
+This creates `dist/ClipFix.exe` — a standalone 21 MB executable that includes Python and all dependencies.
 
 ### Install
 
 Run `install.bat` to:
-- Copy the exe to `%LOCALAPPDATA%\ClipboardCoach`
+- Copy the exe to `%LOCALAPPDATA%\ClipFix`
 - Create a Start Menu shortcut
 - Add auto-start at login (background mode)
 
-Or just run `dist/ClipboardCoach.exe` directly — no installation needed.
+Or just run `dist/ClipFix.exe` directly — no installation needed.
 
 ### Uninstall
 
@@ -162,18 +162,18 @@ Run `uninstall.bat` — it stops ClipFix, removes the exe, Start Menu shortcut, 
 
 **Option B: Manual uninstall**
 
-1. Right-click the ClipFix tray icon and click **Quit** (or kill `ClipboardCoach.exe` in Task Manager)
+1. Right-click the ClipFix tray icon and click **Quit** (or kill `ClipFix.exe` in Task Manager)
 2. Delete the install folder:
    ```powershell
-   Remove-Item "$env:LOCALAPPDATA\ClipboardCoach" -Recurse -Force
+   Remove-Item "$env:LOCALAPPDATA\ClipFix" -Recurse -Force
    ```
 3. Remove the Start Menu shortcut:
    ```powershell
-   Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Clipboard Coach.lnk" -Force
+   Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\ClipFix.lnk" -Force
    ```
 4. Remove the auto-start shortcut:
    ```powershell
-   Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\Clipboard Coach.lnk" -Force
+   Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\ClipFix.lnk" -Force
    ```
 
 ### Rebuild After Code Changes

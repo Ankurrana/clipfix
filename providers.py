@@ -1,4 +1,4 @@
-"""LLM provider interface and implementations for Clipboard Coach."""
+"""LLM provider interface and implementations for ClipFix."""
 import json
 import os
 import re
@@ -241,7 +241,7 @@ def load_provider_from_config(config_path: str = None) -> LLMProvider:
     """Load provider from config file, env vars, or defaults."""
     if config_path is None:
         if getattr(sys, "frozen", False):
-            app_dir = os.path.join(os.environ.get("LOCALAPPDATA", ""), "ClipboardCoach")
+            app_dir = os.path.join(os.environ.get("LOCALAPPDATA", ""), "ClipFix")
         else:
             app_dir = os.path.dirname(os.path.abspath(__file__))
         config_path = os.path.join(app_dir, "config.json")

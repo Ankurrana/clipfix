@@ -4,7 +4,7 @@ Run this BEFORE or AFTER installing to verify everything works:
     python test_smoke.py --api-key "your-key" --endpoint "https://..." --deployment "gpt-4.1"
 
 Or with the exe:
-    ClipboardCoach.exe --smoke-test
+    ClipFix.exe --smoke-test
 """
 import os
 import sys
@@ -235,7 +235,7 @@ test("Tray balloon notification (check screen!)", test_tray_notification, requir
 # ── 9. AppData directory writable ──────────────────────────────────────
 def test_appdata():
     from pathlib import Path
-    app_dir = Path(os.environ.get("LOCALAPPDATA", "")) / "ClipboardCoach"
+    app_dir = Path(os.environ.get("LOCALAPPDATA", "")) / "ClipFix"
     app_dir.mkdir(parents=True, exist_ok=True)
     test_file = app_dir / ".smoke_test"
     test_file.write_text("ok")
@@ -252,7 +252,7 @@ if not api_key:
     from pathlib import Path
     for cfg_path in [
         Path("config.json"),
-        Path(os.environ.get("LOCALAPPDATA", "")) / "ClipboardCoach" / "config.json",
+        Path(os.environ.get("LOCALAPPDATA", "")) / "ClipFix" / "config.json",
     ]:
         if cfg_path.exists():
             import json
